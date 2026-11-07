@@ -56,9 +56,8 @@ class ToolIngestionPipeline:
         self.parser = LlamaParse(
             api_key=os.getenv("LLAMA_CLOUD_API_KEY"),
             result_type="markdown",  # Preserves nested catalog data tables cleanly
-            api_version="v2",        # <--- ADD THIS LINE HERE
+            api_version="v2",
             num_workers=4
-        )
         )
 
     def extract_layout_from_pdf(self, file_path: str) -> str:
@@ -86,6 +85,7 @@ class ToolIngestionPipeline:
                 {"role": "user", "content": f"Extract ALL cutting tools visible in this section of the catalog:\n\n{structured_text}"},
             ],
         )
+
     def save_to_supabase(self, extraction: ToolCatalogExtraction):
         """Stage 3: Verify and batch insert structured elements into PostgreSQL."""
         print(f"[Stage 3] Preparing batch insertion for {len(extraction.tools)} entries...")
@@ -116,7 +116,7 @@ class ToolIngestionPipeline:
                 payload, 
                 on_conflict="brand, catalog_number, workpiece_material_group"
             ).execute()
-            print(f"Successfully processed batch ingestion. Rows inserted/updated: {len(response.data)}")
+            print(f"Successfully processed batch ingestion. Rows inserted/updated: {len(payload)}")
         except Exception as e:
             print(f"Database transaction failure: {str(e)}")
 
@@ -146,8 +146,6 @@ class ToolIngestionPipeline:
 # =====================================================================
 if __name__ == "__main__":
     pipeline = ToolIngestionPipeline()
-    
-    # Path to your downloaded cutting tool manufacturer PDF catalog sheet
     catalog_pdf = "widia_turning_catalog.pdf" 
     
     if os.path.exists(catalog_pdf):
