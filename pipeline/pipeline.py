@@ -1,8 +1,9 @@
 import os
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 import instructor
-from llama_parse import LlamaParse
+from llama_cloud import LlamaCloud
 from openai import OpenAI
 from pydantic import BaseModel, Field
 from supabase import create_client, Client
@@ -52,20 +53,31 @@ class ToolIngestionPipeline:
             os.getenv("SUPABASE_KEY", "")
         )
         
-        # Configure LlamaParse using the mandatory v2 API layer
-        self.parser = LlamaParse(
-            api_key=os.getenv("LLAMA_CLOUD_API_KEY"),
-            result_type="markdown",  # Preserves nested catalog data tables cleanly
-            api_version="v2",
-            num_workers=4
-        )
+        # Configure the modern LlamaCloud client
+        self.parser = LlamaCloud(api_key=os.getenv("LLAMA_CLOUD_API_KEY"))
 
     def extract_layout_from_pdf(self, file_path: str) -> str:
-        """Stage 1: Extract structural text layout from PDF catalog pages."""
-        print(f"[Stage 1] Parsing layout for {file_path}...")
-        documents = self.parser.load_data(file_path)
-        # Combine pages into a coherent markdown string
-        return "\n\n".join([doc.text for doc in documents])
+        """Stage 1: Extract structural text layout from PDF via v2 Parse API."""
+        print(f"[Stage 1] Uploading and parsing layout for {file_path} via v2 API...")
+        
+        # Upload the file to LlamaCloud storage
+        uploaded_file = self.parser.files.create(file=Path(file_path), purpose="parse")
+        
+        # Trigger the modern v2 layout extraction pipeline
+        result = self.parser.parsing.parse(
+            file_id=uploaded_file.id,
+            tier="agentic",
+            version="latest",
+            expand=["markdown"]
+        )
+        
+        # Combine parsed markdown pages into a clean text block
+        parsed_pages = []
+        for page in result.markdown.pages:
+            if hasattr(page, 'markdown') and page.markdown:
+                parsed_pages.append(page.markdown)
+        
+        return "\n\n".join(parsed_pages)
 
     def parse_with_llm(self, structured_text: str) -> ToolCatalogExtraction:
         """Stage 2: Standardize raw catalog markdown text into Pydantic models."""
@@ -92,7 +104,6 @@ class ToolIngestionPipeline:
         
         payload = []
         for tool in extraction.tools:
-            # Structuring row array elements to match standard table schemas
             row = {
                 "brand": tool.brand,
                 "catalog_number": tool.catalog_number,
@@ -102,7 +113,7 @@ class ToolIngestionPipeline:
                 "vc_m_min": tool.recommended_params.vc_m_min,
                 "fn_mm_rev": tool.recommended_params.fn_mm_rev,
                 "ap_mm": tool.recommended_params.ap_mm,
-                "modifiers": tool.modifiers  # Maps directly to PostgreSQL JSONB column
+                "modifiers": tool.modifiers
             }
             payload.append(row)
             
@@ -110,7 +121,6 @@ class ToolIngestionPipeline:
             print("No valid cutting data found to insert.")
             return
 
-        # Execute upsert or batch insert
         try:
             response = self.supabase.table("cutting_tools").upsert(
                 payload, 
@@ -126,11 +136,15 @@ class ToolIngestionPipeline:
         # 1. Extract raw layout text
         markdown_text = self.extract_layout_from_pdf(pdf_path)
         
-        # 2. Break the catalog text into manageable pieces (roughly by section/page)
+        if not markdown_text.strip():
+            print("[System] Warning: No text content returned from the catalog parser.")
+            return
+            
+        # 2. Break the catalog text into manageable pieces
         print("[System] Splitting catalog text into chunks for deeper extraction...")
         chunks = [markdown_text[i:i+4000] for i in range(0, len(markdown_text), 4000)]
         
-        # 3. Process each piece individually and accumulate the results
+        # 3. Process each piece individually
         for idx, chunk in enumerate(chunks):
             print(f"--> Processing text chunk {idx + 1} of {len(chunks)}...")
             try:
