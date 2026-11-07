@@ -1,0 +1,6 @@
+llama-parse
+instructor
+openai
+supabase
+pydantic
+python-dotenv
