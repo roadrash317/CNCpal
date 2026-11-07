@@ -68,7 +68,6 @@ class ToolIngestionPipeline:
 
     def parse_with_llm(self, structured_text: str) -> ToolCatalogExtraction:
         """Stage 2: Standardize raw catalog markdown text into Pydantic models."""
-        print("[Stage 2] Formatting unstructured catalog layout via LLM...")
         return self.openai_client.chat.completions.create(
             model="gpt-4o",
             response_model=ToolCatalogExtraction,
@@ -82,10 +81,9 @@ class ToolIngestionPipeline:
                         "chipbreaker targets, machine constraints, or coolant instructions noted."
                     ),
                 },
-                {"role": "user", "content": structured_text},
+                {"role": "user", "content": f"Extract ALL cutting tools visible in this section of the catalog:\n\n{structured_text}"},
             ],
         )
-
     def save_to_supabase(self, extraction: ToolCatalogExtraction):
         """Stage 3: Verify and batch insert structured elements into PostgreSQL."""
         print(f"[Stage 3] Preparing batch insertion for {len(extraction.tools)} entries...")
@@ -122,10 +120,23 @@ class ToolIngestionPipeline:
 
 
     def run_pipeline(self, pdf_path: str):
-        """Orchestrate entire pipeline execution."""
+        """Orchestrate entire pipeline execution using text splitting."""
+        # 1. Extract raw layout text
         markdown_text = self.extract_layout_from_pdf(pdf_path)
-        structured_data = self.parse_with_llm(markdown_text)
-        self.save_to_supabase(structured_data)
+        
+        # 2. Break the catalog text into manageable pieces (roughly by section/page)
+        print("[System] Splitting catalog text into chunks for deeper extraction...")
+        chunks = [markdown_text[i:i+4000] for i in range(0, len(markdown_text), 4000)]
+        
+        # 3. Process each piece individually and accumulate the results
+        for idx, chunk in enumerate(chunks):
+            print(f"--> Processing text chunk {idx + 1} of {len(chunks)}...")
+            try:
+                structured_data = self.parse_with_llm(chunk)
+                if structured_data.tools:
+                    self.save_to_supabase(structured_data)
+            except Exception as e:
+                print(f"Skipped chunk {idx + 1} due to parsing limit: {str(e)}")
 
 
 # =====================================================================
