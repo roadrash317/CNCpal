@@ -52,11 +52,13 @@ class ToolIngestionPipeline:
             os.getenv("SUPABASE_KEY", "")
         )
         
-        # Configure LlamaParse for structure-aware parsing
+        # Configure LlamaParse using the mandatory v2 API layer
         self.parser = LlamaParse(
             api_key=os.getenv("LLAMA_CLOUD_API_KEY"),
             result_type="markdown",  # Preserves nested catalog data tables cleanly
+            api_version="v2",        # <--- ADD THIS LINE HERE
             num_workers=4
+        )
         )
 
     def extract_layout_from_pdf(self, file_path: str) -> str:
