@@ -1,4 +1,4 @@
-llama-parse
+llama-cloud>=2.8
 instructor
 openai
 supabase
