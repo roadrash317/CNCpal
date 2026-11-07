@@ -1,0 +1,74 @@
+import instructor
+from openai import OpenAI
+from pydantic import BaseModel, Field
+from typing import List, Optional
+
+
+# 1. Define the structured data models for the cutting tool
+class CuttingParameters(BaseModel):
+    vc_m_min: float = Field(
+        description="Cutting speed (Vc) in meters per minute"
+    .0
+    )
+    fn_mm_rev: float = Field(
+        description="Feed per revolution (fn) in mm/rev"
+    .0
+    )
+    ap_mm: Optional[float] = Field(
+        default=None, description="Depth of cut (ap) in mm"
+    )
+
+
+class CuttingToolSpec(BaseModel):
+    brand: str = Field(description="Manufacturer brand, e.g., Widia, Iscar")
+    catalog_number: str = Field(
+        description="Exact part or order number, e.g., CNMG 432 RH WP35CT"
+    )
+    insert_shape: str = Field(description="Insert shape, e.g., CNMG")
+    grade: str = Field(
+        description="Insert grade or coating designation, e.g., WP35CT"
+    )
+    workpiece_material_group: str = Field(
+        description="ISO material group, e.g., P, M, K, S"
+    )
+    recommended_params: CuttingParameters
+
+
+class ToolCatalogExtraction(BaseModel):
+    tools: List[CuttingToolSpec]
+
+
+# 2. Initialize the client with Instructor patch
+client = instructor.from_openai(OpenAI())
+
+
+def parse_tool_catalog_text(raw_catalog_text: str) -> ToolCatalogExtraction:
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        response_model=ToolCatalogExtraction,
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a precision CNC engineering assistant. "
+                    "Extract structured cutting tool specifications and baseline "
+                    "speeds and feeds parameters from the provided catalog text."
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"Extract the tool specs from this text:\n\n{raw_catalog_text}",
+            },
+        ],
+    )
+    return response
+
+
+# Example usage:
+if __name__ == "__main__":
+    sample_text = """
+    Widia CNMG 432 RH WP35CT - Inserts for Stainless Steel (M group). 
+    Recommended cutting speed Vc = 180 m/min, feed rate fn = 0.25 mm/rev, depth of cut ap = 2.0 mm.
+    """
+    extracted_data = parse_tool_catalog_text(sample_text)
+    print(extracted_data.model_dump_json(indent=2))
